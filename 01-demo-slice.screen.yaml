@@ -1,0 +1,178 @@
+id: pg-deduction-validity-demo
+view_kind: board
+library_ref: null
+industry: retail_cpg
+framing: reduce_revenue_leakage_from_deductions
+domain: Accounts Receivable — Deductions
+title: Demo Path — One Short-Paid Invoice
+full_canvas: true
+
+generated_by: atlas-demo
+generated_at: "2026-09-08"
+
+hotspots:
+  - selector: "[data-prep-id='process-orchestration-flow-step-remittance-arrived']"
+    label: "Start here — one remittance, one short-paid invoice (INV-4501873392)"
+    order: 1
+  - selector: "[data-prep-id='process-orchestration-flow-step-gw-invoice-match']"
+    label: "The fork — invoice amount vs. payment received — this invoice goes the short-pay path"
+    order: 2
+  - selector: "[data-prep-id='process-orchestration-flow-step-unpack-remittance']"
+    label: "MLWB reads the email, extracts the remittance data and attachments"
+    order: 3
+  - selector: "[data-prep-id='process-orchestration-flow-step-code-reason']"
+    label: "The critical step — which reason code? Pricing? POD issue? Return? We determine that here"
+    order: 4
+  - selector: "[data-prep-id='process-orchestration-flow-step-validate-decision']"
+    label: "Is this deduction valid or invalid? The AI recommends, and that's the revenue-leakage decision"
+    order: 5
+  - selector: "[data-prep-id='process-orchestration-flow-step-post-to-sap']"
+    label: "The outcome goes straight to SAP — cash app and deduction posted, report sent"
+    order: 6
+
+brand:
+  name: Procter & Gamble
+  primary_color: "#003DA5"
+  logo_url: "https://upload.wikimedia.org/wikipedia/commons/8/85/Procter_%26_Gamble_logo.svg"
+
+columns:
+  - components:
+      - kind: brand-hero
+        orientation: horizontal
+
+      - kind: process-orchestration-flow
+        title: Demo Path — Deduction Validity for INV-4501873392
+
+        trigger:
+          case_id: "INV-4501873392"
+          source_screen: "00-blueprint"
+          action_label: "Validate & Post Deduction"
+          triggered_at: "2026-09-08T07:12:00Z"
+
+        steps:
+          - id: remittance-arrived
+            step_type: start
+            label: Remittance received — short-pay on INV-4501873392
+            actor: trigger
+            system: outlook
+            status: complete
+            duration: instant
+
+          - id: unpack-remittance
+            step_type: process
+            label: MLWB reads email, extracts remittance and attachments
+            actor: ai
+            system: celonis
+            status: complete
+            duration: "0.8s"
+
+          - id: archive-to-sharepoint
+            step_type: process
+            label: Archive documents to SharePoint
+            actor: system
+            system: sharepoint
+            status: complete
+            duration: instant
+
+          - id: fetch-invoice-data
+            step_type: process
+            label: Fetch invoice and payment data from SAP
+            actor: system
+            system: sap
+            status: complete
+            duration: "1.0s"
+
+          - id: reconcile-payment
+            step_type: process
+            label: Reconcile payment received vs. invoice amount
+            actor: system
+            system: celonis
+            status: complete
+            duration: "1.2s"
+
+          - id: gw-invoice-match
+            step_type: gateway
+            subtype: exclusive
+            label: Invoice amount = payment received?
+            actor: system
+            system: celonis
+            status: complete
+            duration: instant
+
+          - id: close-fully-paid
+            step_type: process
+            label: Close fully-paid invoice — no deduction
+            actor: system
+            system: celonis
+            status: skipped
+            duration: instant
+
+          - id: fetch-pricing-pod
+            step_type: process
+            label: Check pricing sheet and POD tracker
+            actor: system
+            system: sharepoint
+            status: current
+            duration: "2.1s"
+
+          - id: code-reason
+            step_type: process
+            label: Determine reason code — D10 / C30 / C50 / A70 / D20
+            actor: ai
+            system: celonis
+            status: pending
+            duration: "2.4s"
+
+          - id: validate-decision
+            step_type: process
+            label: Recommend valid or invalid deduction
+            actor: agent
+            system: celonis
+            status: pending
+
+          - id: converge-outcome
+            step_type: converge
+            label: Deduction outcome determined
+            actor: system
+            system: celonis
+            status: pending
+
+          - id: post-to-sap
+            step_type: process
+            label: Post cash application and deduction to SAP
+            actor: system
+            system: sap
+            status: pending
+            duration: "1.6s"
+
+          - id: email-report
+            step_type: process
+            label: Email hand-off and FBL5 report
+            actor: system
+            system: outlook
+            status: pending
+
+        connections:
+          - {from: remittance-arrived, to: unpack-remittance}
+          - {from: unpack-remittance, to: archive-to-sharepoint}
+          - {from: archive-to-sharepoint, to: fetch-invoice-data}
+          - {from: fetch-invoice-data, to: reconcile-payment}
+          - {from: reconcile-payment, to: gw-invoice-match}
+
+          # The fork
+          - {from: gw-invoice-match, to: close-fully-paid, condition: "Amounts match"}
+          - {from: gw-invoice-match, to: fetch-pricing-pod, condition: "Short-paid"}
+
+          - {from: close-fully-paid, to: converge-outcome}
+          - {from: fetch-pricing-pod, to: code-reason}
+          - {from: code-reason, to: validate-decision}
+          - {from: validate-decision, to: converge-outcome}
+
+          - {from: converge-outcome, to: post-to-sap}
+          - {from: post-to-sap, to: email-report}
+
+        summary:
+          total_steps: 14
+          completed: 5
+          eta: "~ 4 minutes"
+          value_recovered: "Short-pay gap validation — deduction legitimacy confirmed"
